@@ -1,18 +1,12 @@
 #!/bin/sh
 
-DOMAIN="ikstream.net"
-KEY_FILE="/tmp/public_key.pem"
-LOG_PATH="/tmp/dalec"
-UID_FILE="${LOG_PATH}/dalec-id"
-LOG_FILE="${LOG_PATH}/basic.log"
-COLLECT="/usr/sbin/dalec"
-STATS_SERVER="owrt.sviks.de"
-
+CONFIG_PATH="/etc/dalec.d/dalec_transmitter.conf"
+COLLECTOR="/usr/sbin/dalec"
 
 # Retrieve the public key from server for encryption
 #
 # Returns:
-#       key: public key of server for encryption of messages
+#   key: public key of server for encryption of messages
 #
 get_key()
 {
@@ -22,7 +16,7 @@ get_key()
 
   for i in $(seq 1 3);
   do
-    key=$key$(drill -t $DOMAIN TXT | awk -F \;=\; "/pass$i/ { print $key_pos
+    key=$key$(drill -t $KEY_DOMAIN TXT | awk -F \;=\; "/pass$i/ { print $key_pos
   }" | tr -d '"')
   done
 
@@ -68,7 +62,7 @@ encrypt_data()
 # Generate entropic data from memory technnology devices for salt and pass
 #
 # Returns:
-#       hash of all mtd devices
+#   hash of all mtd devices
 #
 generate_data()
 {
@@ -93,7 +87,7 @@ generate_data()
 # Generate the ID for the device based on it's available MAC addresses
 #
 # Returns:
-#       hash: the sha512 hash of available MAC-addresses
+#   hash: the sha512 hash of available MAC-addresses
 #
 generate_id()
 {
@@ -130,13 +124,17 @@ generate_id()
 
 # Encrypt the generated id, which is DNS conform and cropped to 32 byte
 #
+# Arguments:
+#   id_file - path to uid file
+#
 # Returns:
-#       enc_id: encrpted, dns conform and cropped id
+#   enc_id - encrpted, dns conform and cropped id
 #
 encrypt_id()
 {
-  if [ -f "$UID_FILE" ]; then
-    echo "$(cat $UID_FILE)"
+  id_file="$1"
+  if [ -f "$id_file" ]; then
+    echo "$(cat $id_file)"
     return
   fi
 
@@ -210,12 +208,14 @@ chunk_data()
 # Transmitt enrypted and encoded data to server
 #
 # Arguments:
-#   tdata: transmission ready data
+#   tdata - transmission ready data
+#   id_file - path to uid file
 #
 transmitt_enc_data()
 {
   tdata="$1"
-  eid=$(encrypt_id)
+  id_file="$2"
+  eid=$(encrypt_id "$id_file")
   chunked="$(chunk_data $tdata)"
   step=0
   msg_count=1
@@ -276,14 +276,66 @@ delay_start()
   sleep $seconds
 }
 
-if [ ! -d '/tmp/dalec' ]; then
-  mkdir '/tmp/dalec'
-fi
+# main function
+#
+# Arguments:
+#   args - command line arguments
+#
+main()
+{
+  args="$@"
 
-check_virt
-delay_start
-/bin/sh $COLLECT -l "$LOG_PATH"
-stats="$(get_statistics $LOG_FILE)"
-get_key
-enc_stats="$(encrypt_data $stats)"
-transmitt_enc_data "$enc_stats"
+  if [ ! -d '/tmp/dalec' ]; then
+    mkdir '/tmp/dalec'
+  fi
+
+  options=c:
+  loptions=config:
+
+  parsed=$(getopt -a -o $options --long $loptions -- $args)
+
+  if [ "$?" != "0" ]; then
+    call_help
+    exit $FAILURE
+  fi
+
+  eval set -- "$parsed"
+
+  while true; do
+    case "$1" in
+      "-c" | "--config")
+        cf="$2";
+        shift 2
+        ;;
+      " ")
+        shift
+        ;;
+      --)
+        shift
+        break
+        ;;
+      *)
+        printf "Error: Wrong or missing input ($1)!\n"
+        printf "-c, --config <path to config> expected\n"
+        exit $FAILURE
+        ;;
+    esac
+  done
+
+  if [ -f "${cf:=$CONFIG_PATH}" ]; then
+    source "$cf"
+  fi
+
+  uid_file="${LOG_PATH}/dalec-id"
+  log_file="${LOG_PATH}/basic.log"
+
+  check_virt
+  delay_start
+  /bin/sh $COLLECTOR -l "$LOG_PATH"
+  stats="$(get_statistics $log_file)"
+  get_key
+  enc_stats="$(encrypt_data $stats)"
+  transmitt_enc_data "$enc_stats" "$uid_file"
+}
+
+main "$@"

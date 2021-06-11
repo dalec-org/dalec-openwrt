@@ -23,13 +23,19 @@ define Package/$(PKG_NAME)/description
 	encrypted over the domain name system to remove sender information
 endef
 
+define Package/$(PKG_NAME)/conffiles
+/etc/dalec.d/dalec_transmitter.conf
+endef
+
 define Build/Compile
 endef
 
 define Package/$(PKG_NAME)/install
 		$(INSTALL_DIR) $(1)/usr/sbin
 		$(INSTALL_BIN) ./dalec $(1)/usr/sbin/
-		$(INSTALL_DATA) ./transmitt_data $(1)/usr/sbin/
+		$(INSTALL_BIN) ./transmitt_data $(1)/usr/sbin/
+		$(INSTALL_DIR) $(1)/etc/dalec.d/
+		$(INSTALL_DATA) ./dalec_transmitter.conf $(1)/etc/dalec.d/dalec_transmitter.conf
 endef
 
 define Package/$(PKG_NAME)/postinst
@@ -41,8 +47,10 @@ fi
 
 sed -i '/^#[^!]*$$/d' /usr/sbin/dalec
 sed -i '/^#[^!]*$$/d' /usr/sbin/transmitt_data
+sed -i '/^#[^!]*$$/d' /etc/dalec.d/dalec_transmitter.conf
 sed -i '/^$$/d' /usr/sbin/dalec
 sed -i '/^$$/d' /usr/sbin/transmitt_data
+sed -i '/^$$/d' /etc/dalec.d/dalec_transmitter.conf
 
 echo "If you consent, that this software may collect your data, please run the follwing command"
 echo 'printf "0 */4 * * * /bin/sh /usr/sbin/transmitt_data\n\$$(crontab -l -u root 2>/dev/null)" | crontab -u root -'
