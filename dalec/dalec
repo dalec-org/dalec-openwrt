@@ -56,7 +56,7 @@ get_architecture()
 {
   log=$1
 
-  ret=$(command uname &> /dev/null; echo $?)
+  ret=$(command uname > /dev/null 2>&1; echo $?)
 
   if [ "$ret" -eq 0 ]; then
     printf "ARCH=%s\n" "$(uname -m)" >> "$log"
@@ -80,7 +80,7 @@ get_kernel()
   else
     kernel=''
   fi
-  printf "KERNEL=%s\n" "$kernel"  >> $log
+  printf "KERNEL=%s\n" "$kernel"  >> "$log"
 }
 
 
@@ -100,7 +100,7 @@ get_version()
     kernel_vers=$(cat "$kernel_vers_file")
   fi
 
-  printf "VERSION=%s\n" "$kernel_vers"  >> $log
+  printf "VERSION=%s\n" "$kernel_vers"  >> "$log"
 }
 
 # Collect network interface data
@@ -122,12 +122,12 @@ get_nic_count()
       break
     fi
 
-    if [ ! "$intf" == "lo" ]; then
-      addr="$addr $(cat /sys/class/net/$intf/address)"
+    if [ ! "$intf" = "lo" ]; then
+      addr="$addr $(cat /sys/class/net/"$intf"/address)"
     fi
   done
 
-  printf "INTERFACE_COUNT=%s\n" "$(echo $addr | tr ' ' '\n' | sort -u | wc -l)"  >> $log
+  printf "INTERFACE_COUNT=%s\n" "$(echo "$addr" | tr ' ' '\n' | sort -u | wc -l)"  >> "$log"
 }
 
 
@@ -164,7 +164,7 @@ get_cpu_data()
   printf "SYSTEM_TYPE=%s\n" "$systype"; \
   printf "MACHINE=%s\n" "$machine"; \
   printf "VENDOR_ID=%s\n" "$vendor_id"; \
-  printf "CORE_THREADS=%s:%s\n" "$num_cores" "$num_proc"; } >> $log
+  printf "CORE_THREADS=%s:%s\n" "$num_cores" "$num_proc"; } >> "$log"
 }
 
 
@@ -182,12 +182,12 @@ get_memdata()
   avail_mem=''
 
   if [ -f "$memfile" ]; then
-    tot_mem=$(check_size $(awk '/MemTotal:/{print $2}' "$memfile"))
-    avail_mem=$(check_size $(awk '/MemAvaila/{print $2}' "$memfile"))
+    tot_mem=$(check_size "$(awk '/MemTotal:/{print $2}' "$memfile")")
+    avail_mem=$(check_size "$(awk '/MemAvaila/{print $2}' "$memfile")")
   fi
 
-  printf "TOTALMEM=%s\n" "$tot_mem" >> $log
-  printf "AVAILMEM=%s\n" "$avail_mem" >> $log
+  printf "TOTALMEM=%s\n" "$tot_mem" >> "$log"
+  printf "AVAILMEM=%s\n" "$avail_mem" >> "$log"
 }
 
 
@@ -207,7 +207,7 @@ get_uptime()
     time="$(awk '{print $1}' $upfile)"
   fi
 
-  printf "UPTIME=%s\n" $time >> $log
+  printf "UPTIME=%s\n" "$time" >> "$log"
 }
 
 
@@ -227,7 +227,7 @@ get_lease_count()
     lease_count=$(awk 'END{print NR}' "$lease_file")
   fi
 
-  printf "LEASE_COUNT=%s\n" "$lease_count" >> $log
+  printf "LEASE_COUNT=%s\n" "$lease_count" >> "$log"
 }
 
 
@@ -246,14 +246,14 @@ collect_network()
 
   network_log="$1/network.log"
 
-  if [ ! -f $network_log ]; then
-    touch $network_log
+  if [ ! -f "$network_log" ]; then
+    touch "$network_log"
   else
-    echo '' > $network_log
+    echo '' > "$network_log"
   fi
 
-  get_nic_count $network_log
-  get_lease_count $network_log
+  get_nic_count "$network_log"
+  get_lease_count "$network_log"
 }
 
 
@@ -324,19 +324,18 @@ call_help()
 # main function
 #
 # Arguments:
-# args - command line arguments
+#   args - command line arguments
 #
 main()
 {
-  args="$@"
-
   options=ac:hl:nv
   loptions=all,config:,help,log:,network,version
   command='basic'
 
 
-  parsed=$(getopt -a -o $options --long $loptions -- $args)
-  if [ "$?" != "0" ]; then
+  parsed=$(getopt -a -o "$options" --long "$loptions" -- "$@")
+  ret=$?
+  if [ "$ret" != "0" ]; then
     call_help
     exit $FAILURE
   fi
@@ -355,7 +354,7 @@ main()
         ;;
       "-h" | "--help")
         call_help;
-        exit
+        exit $SUCCESS
         ;;
       "-l" | "--log")
         c_log="$2";
@@ -366,8 +365,8 @@ main()
         shift
         ;;
       "-v" | "--version")
-        printf "Version: $VERSION\n"
-        exit
+        printf "Version: %s\n" "$VERSION"
+        exit $SUCCESS
         ;;
       " ")
         shift
@@ -377,24 +376,24 @@ main()
         break
         ;;
       *)
-        printf "Error: Wrong or missing input ($1)! Usage:\n"
+        printf "Error: Wrong or missing input (%s)! Usage:\n" "$1"
         call_help
         exit $FAILURE
         ;;
     esac
   done
 
-  if [ -z $c_log ]; then
-    log=$LOG
+  if [ -z "$c_log" ]; then
+    log="$LOG"
   else
-    log=$c_log
+    log="$c_log"
   fi
 
   if [ ! -d "$log" ]; then
     mkdir -p "$log"
   fi
 
-  for c in $(echo $command | tr ' ' '\n'); do
+  for c in $(echo "$command" | tr ' ' '\n'); do
     case "$c" in
       basic)
         collect_basics "$log/basic.log"
