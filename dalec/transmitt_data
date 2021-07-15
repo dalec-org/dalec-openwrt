@@ -42,7 +42,7 @@ get_key()
 get_statistics()
 {
   logfile=$1
-  echo "$(awk -F = '{print "\""$2"\""}' $logfile | tr '\n' ';' | tr ' ' '_' )"
+  awk -F = '{print "\""$2"\""}' "$logfile" | tr '\n' ';' | tr ' ' '_'
 }
 
 
@@ -74,7 +74,7 @@ generate_data()
 {
   tmp_file='/tmp/gen.data'
 
-  for part in $(awk -F : '/u-boot|art|factory/{print $1}' /proc/mtd);
+  awk -F : '/u-boot|art|factory/{print $1}' /proc/mtd | while IFS= read -r part
   do
     openssl dgst -sha3-512 "/dev/$part" | awk '{print $2}' >> $tmp_file
   done
@@ -100,21 +100,22 @@ generate_id()
   if_list='';
   uid=''
   net_dir="/sys/class/net"
+  net_ifs="$(find "$net_dir/")"
 
-  for interface in $(find "$net_dir/");
+  while IFS= read -r interface
   do
-    device_type=$(echo $(readlink "$interface") | awk -F / '{print $4}')
-    if [ "$device_type" != 'virtual' ] && [ "$(basename $interface)" != 'net' ]; then
-      if_list="${if_list} $(cat $net_dir/$(basename $interface)/address)"
+    device_type="$(readlink "$interface" | awk -F / '{print $4}')"
+    if [ "$device_type" != 'virtual' ] && [ "$(basename "$interface")" != 'net' ]; then
+      if_list="${if_list} $(cat "$net_dir"/"$(basename "$interface")"/address)"
     fi
-  done;
+  done < "$net_ifs"
 
   if [ -z "$if_list" ]; then
     printf "No physical network interface found\n"
     exit 2
   fi
 
-  if_list="$(echo $if_list | tr ' ' '\n' | sort -u)"
+  if_list="$(echo "$if_list" | tr ' ' '\n' | sort -u)"
 
   for mac in $if_list;
   do
@@ -122,7 +123,7 @@ generate_id()
                 openssl dgst -sha3-512 | awk '{print $2}')
   done
 
-  hash="$(echo $uid | openssl dgst -sha3-512 | awk '{print $2}')"
+  hash="$(echo "$uid" | openssl dgst -sha3-512 | awk '{print $2}')"
   echo "$hash"
   unset uid
 }
@@ -136,7 +137,7 @@ generate_id()
 encrypt_id()
 {
   if [ -f "$UID_FILE" ]; then
-    echo "$(cat $UID_FILE)"
+    cat $UID_FILE
     return
   fi
 
@@ -145,18 +146,18 @@ encrypt_id()
 
   if [ -f "/proc/mtd" ]; then
     crypt_data="$(generate_data)"
-    key=$(echo "$crypt_data" | tail -c $(( ${#crypt_data} - $salt_length )))
+    key=$(echo "$crypt_data" | tail -c $(( ${#crypt_data} - salt_length )))
     salt=$(echo "$crypt_data" | head -c $salt_length)
   else
-    key=$(echo "$id" | tail -c $(( ${#id} - $salt_length )))
+    key=$(echo "$id" | tail -c $(( ${#id} - salt_length )))
     salt=$(echo "$id" | head -c "$salt_length")
   fi
 
-  printf "$(echo "$id" | openssl enc -aes-256-cbc -md sha512 -pbkdf2 -iter 100000 \
-           -k "$key" -S "$salt" -base64 | \
+  printf "%s" "$(echo "$id" | openssl enc -aes-256-cbc -md sha512 -pbkdf2 \
+           -iter 100000 -k "$key" -S "$salt" -base64 | \
            tr -d '\n' | \
            sed 's;[^a-zA-z0-9];;g' | tail -c 32)" >> $UID_FILE
-  echo "$(cat $UID_FILE)"
+  cat "$UID_FILE"
 }
 
 
@@ -172,10 +173,10 @@ calc_splits() {
   base_data=$1
   size=$2
 
-  if [ "$(( ${#base_data} % $size))" -eq 0 ]; then
-    splits=$(( ${#base_data} / $size))
+  if [ "$(( ${#base_data} % size))" -eq 0 ]; then
+    splits=$(( ${#base_data} / size))
   else
-    splits=$(( $(( ${#base_data} / $size)) + 1))
+    splits=$(( $(( ${#base_data} / size)) + 1))
   fi
 
   echo "$splits"
@@ -197,10 +198,10 @@ chunk_data()
   splits=$(calc_splits "$data" 62)
 
   # iterate over the data in steps of 62 byte
-  for i in $(seq 0 $(( $splits - 1)));
+  for i in $(seq 0 $(( splits - 1)));
   do
-    offset=$(( 61 * $i ))
-    chunks="${chunks}$(echo $data | cut -b $(( 1 + $offset))-$(( 61 + $offset))) "
+    offset=$(( 61 * i ))
+    chunks="${chunks}$(echo "$data" | cut -b $(( 1 + offset ))-$(( 61 + offset )))"
   done
 
   echo "$chunks"
@@ -216,7 +217,7 @@ transmitt_enc_data()
 {
   tdata="$1"
   eid=$(encrypt_id)
-  chunked="$(chunk_data $tdata)"
+  chunked="$(chunk_data "$tdata")"
   step=0
   msg_count=1
   msg=""
@@ -229,8 +230,8 @@ transmitt_enc_data()
 
     if [ "$step" -eq 2 ]; then
       msg="${msg}${eid}-${msg_count}-${nr_msgs}.$STATS_SERVER"
-      drill $msg > /dev/null
-      msg_count=$(( $msg_count + 1))
+      drill "$msg" > /dev/null
+      msg_count=$(( msg_count + 1))
       step=0
       msg=''
       send=1
@@ -238,12 +239,12 @@ transmitt_enc_data()
       continue
     fi
 
-    step=$(( $step + 1 ))
+    step=$(( step + 1 ))
   done
 
   if [ "$send" -eq 0 ]; then
     msg="${msg}${eid}-${msg_count}-${nr_msgs}.$STATS_SERVER"
-    drill $msg > /dev/null
+    drill "$msg" > /dev/null
   fi
 }
 
@@ -252,10 +253,10 @@ transmitt_enc_data()
 #
 check_virt()
 {
-  if [ $(command dmesg &> /dev/null; echo $?) -eq 0 ]; then
+  if [ "$(command dmesg > /dev/null 2>&1; echo $?)" -eq 0 ]; then
     env=$(dmesg | awk '/paravirtualized/{print $7}')
 
-    if [ ! -z "$env" ] && [ "$env" != 'bare' ]; then
+    if [  -n "$env" ] && [ "$env" != 'bare' ]; then
       printf "Detected virualization! Exiting\n"
       exit 2
     fi
@@ -272,7 +273,7 @@ delay_start()
   t3=$(grep -ao -m 1 '[1-9]' /dev/urandom | head -n 1)
   t4=$(grep -ao -m 1 '[1-9]' /dev/urandom | sed 's/0/10/' | head -n 1)
   t5=$(grep -ao -m 1 '[0-9]' /dev/urandom | sed 's/0/10/' | head -n 1)
-  seconds=$(($t1 * $t2 * $t3 * $t4 * $t5))
+  seconds=$(( t1 * t2 * t3 * t4 * t5 ))
   sleep $seconds
 }
 
@@ -283,7 +284,7 @@ fi
 check_virt
 delay_start
 /bin/sh $COLLECT -l "$LOG_PATH"
-stats="$(get_statistics $LOG_FILE)"
+stats="$(get_statistics "$LOG_FILE")"
 get_key
-enc_stats="$(encrypt_data $stats)"
+enc_stats="$(encrypt_data "$stats")"
 transmitt_enc_data "$enc_stats"
